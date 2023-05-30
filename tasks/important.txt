@@ -1,0 +1,80 @@
+For deploying this app i needed to make some configurations:
+
+1 Open mysite/settings.py and find the declaration of the SECRET_KEY setting. We do not want to store production secrets in source code, so we’ll fetch it from an environment variable that we’ll create later:
+
+        # Don't forget to import os at the beginning of the file
+        import os
+
+        # SECURITY WARNING: keep the secret key used in production secret!
+        SECRET_KEY = os.environ.get('SECRET_KEY', default='your secret key')
+
+2 Find the declaration of the DEBUG setting. This setting should never be set to True in a production environment. You can detect if you are running on Render by checking if the RENDER environment variable is present in the application environment.
+
+        # SECURITY WARNING: don't run with debug turned on in production!
+        DEBUG = 'RENDER' not in os.environ
+
+3 When DEBUG = False, Django will not work without a suitable value for ALLOWED_HOSTS. You can get the name of your web service host from the RENDER_EXTERNAL_HOSTNAME environment variable, which is automatically set by Render.
+
+        # https://docs.djangoproject.com/en/3.0/ref/settings/#allowed-hosts
+        ALLOWED_HOSTS = []
+
+        RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')if RENDER_EXTERNAL_HOSTNAME:    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+        I
+
+Also it was necesary to configure PostgreSQL for this prohect
+
+4 Run following command to add necessary dependencies to your project:
+        - pip install dj-database-url
+        - pip install psycopg2-binary
+
+5 In mysite/settings.py, find declaration of the DATABASES setting and modify it to look as follows:
+        # Don't forget to import dj-database-url at the beginning of the file
+        import dj_database_url
+        
+        # Database
+        # https://docs.djangoproject.com/en/3.0/ref/settings/#databases
+
+        DATABASES = {
+            'default': dj_database_url.config(        # Feel free to alter this value to suit your needs.        default='postgresql://postgres:postgres@localhost:5432/mysite',        conn_max_age=600    )}
+
+
+6 Add WhiteNoise as a dependency (adding Brotli support is optional, but recommended):
+        - pip install whitenoise[brotli]
+
+7 Open mysite/settings.py, find the MIDDLEWARE list, and add the WhiteNoise middleware just after SecurityMiddleware:
+        - wMIDDLEWARE = [
+                'django.middleware.security.SecurityMiddleware',
+                'whitenoise.middleware.WhiteNoiseMiddleware',    ...
+        ]
+
+8 Find the section where static files are configured. Apply following modifications:
+        STATIC_URL = '/static/'
+        # Following settings only make sense on production and may break development environments.
+        if not DEBUG:    # Tell Django to copy statics to the `staticfiles` directory
+        # in your application directory on Render.
+        STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+        # Turn on WhiteNoise storage backend that takes care of compressing static files
+        # and creating unique names for each version so they can safely be cached forever.
+        STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+9 Run:
+        - python manage.py collectstatic
+
+10 We need to run a series of commands to build our app. We can accomplish this with a build script. Create a script called build.sh at the root of your repository:
+
+        #!/usr/bin/env bash
+        # exit on error
+        set -o errexit
+
+        poetry install
+
+        python manage.py collectstatic --no-input
+        python manage.py migrate
+
+11 Make sure the script is executable before checking it into Git:
+
+        - chmod a+x build.sh
+
+12 We are going to run our application with Gunicorn. Add the dependency to your project:
+
+        - pip install gunicorn
